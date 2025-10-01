@@ -95,7 +95,7 @@ class Database:
         conn.close()
     
     def add_post(self, source_id: int, title: str, content: str, source_url: str,
-                 images: List[str] = None, tags: List[str] = None) -> int:
+                 images: Optional[List[str]] = None, tags: Optional[List[str]] = None) -> int:
         """Add a new post"""
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -109,6 +109,10 @@ class Database:
         ''', (source_id, title, content, source_url, images_json, tags_json))
         
         post_id = cursor.lastrowid
+        if post_id is None:
+            conn.close()
+            raise Exception("Failed to insert post - no ID returned")
+        
         conn.commit()
         conn.close()
         return post_id
@@ -125,7 +129,7 @@ class Database:
         conn.close()
         return result['count'] > 0
     
-    def get_posts_by_source(self, source_id: int, status: str = None) -> List[Dict[str, Any]]:
+    def get_posts_by_source(self, source_id: int, status: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get posts from a specific source"""
         conn = self.get_connection()
         cursor = conn.cursor()
@@ -188,8 +192,8 @@ class Database:
         return posts
     
     def update_post_rewritten(self, post_id: int, rewritten_title: str,
-                             rewritten_content: str, meta_description: str = None,
-                             suggested_tags: List[str] = None):
+                             rewritten_content: str, meta_description: Optional[str] = None,
+                             suggested_tags: Optional[List[str]] = None):
         """Update post with rewritten content"""
         conn = self.get_connection()
         cursor = conn.cursor()

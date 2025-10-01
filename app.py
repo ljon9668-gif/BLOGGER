@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 import os
+from typing import cast
 from database import Database
 from content_extractor import ContentExtractor
 from ai_rewriter import AIRewriter
@@ -17,11 +18,14 @@ if 'extractor' not in st.session_state:
     st.session_state.extractor = ContentExtractor()
 
 if 'rewriter' not in st.session_state:
-    gemini_api_key = os.getenv("GEMINI_API_KEY", "AIzaSyBAqMxp0-Uf9asMQeDCV8uafPYafHXWLI8")
+    gemini_api_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_api_key:
+        st.error("⚠️ GEMINI_API_KEY not found in environment variables. Please add it to continue.")
+        st.stop()
     st.session_state.rewriter = AIRewriter(gemini_api_key)
 
 if 'publisher' not in st.session_state:
-    blogger_api_key = os.getenv("BLOGGER_API_KEY", "AIzaSyBwwg3SyVN9xslSubGlx5kzJMjgHtZibw8")
+    blogger_api_key = os.getenv("BLOGGER_API_KEY")
     st.session_state.publisher = BloggerPublisher(blogger_api_key)
 
 if 'scheduler' not in st.session_state:
@@ -139,11 +143,11 @@ elif page == "Extract Content":
         st.warning("⚠️ No sources available. Please add source blogs first!")
     else:
         source_names = {s['id']: s['name'] for s in sources}
-        selected_source_id = st.selectbox(
+        selected_source_id = cast(int, st.selectbox(
             "Select Source to Extract From",
             options=list(source_names.keys()),
             format_func=lambda x: source_names[x]
-        )
+        ))
         
         max_posts = st.number_input("Maximum Posts to Extract", min_value=1, max_value=100, value=10)
         

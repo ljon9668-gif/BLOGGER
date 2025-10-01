@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, time
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from database import Database
 
 class PostScheduler:
@@ -33,7 +33,7 @@ class PostScheduler:
         
         return schedule
     
-    def get_due_posts(self, current_time: datetime = None) -> List[Dict[str, Any]]:
+    def get_due_posts(self, current_time: Optional[datetime] = None) -> List[Dict[str, Any]]:
         """Get posts that are due for publishing"""
         
         if current_time is None:

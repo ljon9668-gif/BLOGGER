@@ -1,7 +1,7 @@
 import feedparser
 import trafilatura
 import requests
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin, urlparse
 import re
@@ -109,7 +109,7 @@ class ContentExtractor:
             print(f"Webpage extraction error: {str(e)}")
             return []
     
-    def _scrape_single_article(self, url: str) -> Dict[str, Any]:
+    def _scrape_single_article(self, url: str) -> Optional[Dict[str, Any]]:
         """Scrape a single article"""
         try:
             downloaded = trafilatura.fetch_url(url)
@@ -151,7 +151,7 @@ class ContentExtractor:
             elements = soup.select(selector)
             for elem in elements:
                 href = elem.get('href')
-                if href:
+                if href and isinstance(href, str):
                     full_url = urljoin(base_url, href)
                     if self._is_valid_article_url(full_url, base_url):
                         links.append(full_url)
@@ -199,7 +199,9 @@ class ContentExtractor:
         if not title:
             meta_title = soup.find('meta', property='og:title')
             if meta_title:
-                title = meta_title.get('content', '').strip()
+                content_attr = meta_title.get('content', '')
+                if isinstance(content_attr, str):
+                    title = content_attr.strip()
         
         # Try page title
         if not title:
@@ -216,7 +218,7 @@ class ContentExtractor:
         
         for img in soup.find_all('img'):
             src = img.get('src') or img.get('data-src')
-            if src and src.startswith('http'):
+            if src and isinstance(src, str) and src.startswith('http'):
                 images.append(src)
         
         return images[:5]  # Limit to 5 images
@@ -228,7 +230,8 @@ class ContentExtractor:
         meta_keywords = soup.find('meta', attrs={'name': 'keywords'})
         if meta_keywords:
             content = meta_keywords.get('content', '')
-            keywords = [k.strip() for k in content.split(',')]
+            if isinstance(content, str):
+                keywords = [k.strip() for k in content.split(',')]
         
         return keywords[:10]  # Limit to 10 keywords
     

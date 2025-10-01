@@ -1,12 +1,12 @@
 import os
 from google import genai
 from google.genai import types
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 class AIRewriter:
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: Optional[str] = None):
         """Initialize AI rewriter with Gemini API"""
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY") or ""
         self.client = genai.Client(api_key=self.api_key)
         self.model = "gemini-2.0-flash-exp"
     

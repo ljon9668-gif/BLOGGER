@@ -5,18 +5,18 @@ from typing import List, Dict, Any, Optional
 import json
 
 class BloggerPublisher:
-    def __init__(self, api_key: str = None):
+    def __init__(self, api_key: Optional[str] = None):
         """Initialize Blogger API client"""
-        self.api_key = api_key or os.getenv("BLOGGER_API_KEY", "")
+        self.api_key = api_key or os.getenv("BLOGGER_API_KEY") or ""
         self.service = build('blogger', 'v3', developerKey=self.api_key)
     
     def publish_post(self, blog_id: str, title: str, content: str, 
-                    labels: List[str] = None, is_draft: bool = False) -> str:
+                    labels: Optional[List[str]] = None, is_draft: bool = False) -> str:
         """Publish a post to Blogger"""
         
         try:
             # Prepare post body
-            post_body = {
+            post_body: Dict[str, Any] = {
                 'kind': 'blogger#post',
                 'blog': {
                     'id': blog_id
@@ -55,11 +55,11 @@ class BloggerPublisher:
             raise Exception(f"Failed to publish post: {str(e)}")
     
     def update_post(self, blog_id: str, post_id: str, title: str, 
-                   content: str, labels: List[str] = None) -> str:
+                   content: str, labels: Optional[List[str]] = None) -> str:
         """Update an existing post"""
         
         try:
-            post_body = {
+            post_body: Dict[str, Any] = {
                 'kind': 'blogger#post',
                 'id': post_id,
                 'title': title,
@@ -153,7 +153,7 @@ class BloggerPublisher:
         except Exception as e:
             raise Exception(f"Failed to list posts: {str(e)}")
     
-    def format_content_html(self, content: str, images: List[str] = None) -> str:
+    def format_content_html(self, content: str, images: Optional[List[str]] = None) -> str:
         """Format content as HTML for Blogger"""
         
         # Convert paragraphs to HTML
