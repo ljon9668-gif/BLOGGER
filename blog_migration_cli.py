@@ -14,6 +14,8 @@ from database import Database
 from content_extractor import ContentExtractor
 from ai_rewriter import AIRewriter
 from blogger_publisher import BloggerPublisher
+from unified_publisher import UnifiedPublisher
+from email_publisher import EmailPublisher
 
 load_dotenv()
 
@@ -31,6 +33,7 @@ class BlogMigrationCLI:
 
         self.rewriter = AIRewriter(gemini_key)
         self.publisher = BloggerPublisher(blogger_key)
+        self.unified_publisher = UnifiedPublisher()
 
     def display_menu(self):
         print("\n" + "="*60)
@@ -41,9 +44,10 @@ class BlogMigrationCLI:
         print("3. List Sources")
         print("4. Extract Content from Source")
         print("5. Rewrite Posts with AI")
-        print("6. Publish to Blogger")
-        print("7. View Posts by Status")
-        print("8. Exit")
+        print("6. Manage Blogger Configurations")
+        print("7. Publish to Blogger")
+        print("8. View Posts by Status")
+        print("9. Exit")
         print("="*60)
 
     def show_dashboard(self):
@@ -188,6 +192,132 @@ class BlogMigrationCLI:
         except Exception as e:
             print(f"❌ Error: {str(e)}")
 
+    def manage_blogger_configs(self):
+        print("\n⚙️ Manage Blogger Configurations")
+        print("-" * 60)
+        print("1. Add New Configuration")
+        print("2. List Configurations")
+        print("3. Delete Configuration")
+        print("4. Back to Main Menu")
+
+        try:
+            choice = int(input("\nSelect option: "))
+
+            if choice == 1:
+                self._add_blogger_config()
+            elif choice == 2:
+                self._list_blogger_configs()
+            elif choice == 3:
+                self._delete_blogger_config()
+            elif choice == 4:
+                return
+            else:
+                print("❌ Invalid option")
+
+        except ValueError:
+            print("❌ Invalid input")
+
+    def _add_blogger_config(self):
+        print("\n➕ Add Blogger Configuration")
+        blog_name = input("Blog Name: ").strip()
+
+        print("\nPublishing Method:")
+        print("1. API (Blogger API Key)")
+        print("2. Email (Send via SMTP)")
+
+        try:
+            method_choice = int(input("Select method (1 or 2): "))
+
+            if method_choice == 1:
+                blog_id = input("Blogger Blog ID: ").strip()
+                api_key = input("Blogger API Key: ").strip()
+                is_default = input("Set as default? (y/n): ").lower() == 'y'
+
+                if self.db.add_blogger_config(
+                    blog_name=blog_name,
+                    publish_method="api",
+                    blog_id=blog_id,
+                    api_key=api_key,
+                    is_default=is_default
+                ):
+                    print(f"✅ Configuration '{blog_name}' added!")
+                else:
+                    print("❌ Failed to add configuration")
+
+            elif method_choice == 2:
+                print("\nEmail Configuration:")
+                print(EmailPublisher.get_blogger_email_help())
+                email_address = input("Blogger Email Address (e.g., blog.key@blogger.com): ").strip()
+                smtp_server = input("SMTP Server (default: smtp.gmail.com): ").strip() or "smtp.gmail.com"
+                smtp_port = int(input("SMTP Port (default: 587): ") or "587")
+                smtp_username = input("SMTP Username (your email): ").strip()
+                smtp_password = input("SMTP Password: ").strip()
+                is_default = input("Set as default? (y/n): ").lower() == 'y'
+
+                if not EmailPublisher.validate_blogger_email(email_address):
+                    print("❌ Invalid Blogger email format")
+                    return
+
+                if self.db.add_blogger_config(
+                    blog_name=blog_name,
+                    publish_method="email",
+                    email_address=email_address,
+                    smtp_server=smtp_server,
+                    smtp_port=smtp_port,
+                    smtp_username=smtp_username,
+                    smtp_password=smtp_password,
+                    is_default=is_default
+                ):
+                    print(f"✅ Configuration '{blog_name}' added!")
+                else:
+                    print("❌ Failed to add configuration")
+            else:
+                print("❌ Invalid choice")
+
+        except ValueError:
+            print("❌ Invalid input")
+
+    def _list_blogger_configs(self):
+        configs = self.db.get_all_blogger_configs()
+
+        if not configs:
+            print("\nℹ️  No configurations found")
+            return
+
+        print(f"\n📋 Blogger Configurations ({len(configs)})")
+        print("-" * 60)
+
+        for i, config in enumerate(configs, 1):
+            default_mark = "⭐ " if config['is_default'] else "   "
+            print(f"{default_mark}{i}. {config['blog_name']} ({config['publish_method'].upper()})")
+            if config['publish_method'] == 'api':
+                print(f"    Blog ID: {config['blog_id']}")
+            else:
+                print(f"    Email: {config['email_address']}")
+            print()
+
+    def _delete_blogger_config(self):
+        configs = self.db.get_all_blogger_configs()
+
+        if not configs:
+            print("\nℹ️  No configurations to delete")
+            return
+
+        self._list_blogger_configs()
+
+        try:
+            choice = int(input("\nSelect configuration number to delete: ")) - 1
+            if 0 <= choice < len(configs):
+                config_id = configs[choice]['id']
+                if self.db.delete_blogger_config(config_id):
+                    print("✅ Configuration deleted!")
+                else:
+                    print("❌ Failed to delete configuration")
+            else:
+                print("❌ Invalid selection")
+        except ValueError:
+            print("❌ Invalid input")
+
     def publish_posts(self):
         posts = self.db.get_posts_by_status('rewritten')
 
@@ -195,16 +325,26 @@ class BlogMigrationCLI:
             print("\nℹ️  No posts ready to publish. Rewrite posts first.")
             return
 
+        configs = self.db.get_all_blogger_configs()
+        if not configs:
+            print("❌ No Blogger configurations found. Add one first (option 6).")
+            return
+
         print(f"\n🚀 Publish to Blogger ({len(posts)} ready)")
         print("-" * 60)
 
-        blog_id = input("Enter your Blogger Blog ID: ").strip()
-
-        if not blog_id:
-            print("❌ Blog ID is required")
-            return
+        print("\nSelect Configuration:")
+        for i, config in enumerate(configs, 1):
+            default_mark = "⭐ " if config['is_default'] else "   "
+            print(f"{default_mark}{i}. {config['blog_name']} ({config['publish_method'].upper()})")
 
         try:
+            config_choice = int(input("\nSelect configuration number: ")) - 1
+            if config_choice < 0 or config_choice >= len(configs):
+                print("❌ Invalid selection")
+                return
+
+            selected_config = configs[config_choice]
             publish_count = int(input(f"How many posts to publish (max {len(posts)}): "))
 
             if publish_count <= 0 or publish_count > len(posts):
@@ -217,11 +357,12 @@ class BlogMigrationCLI:
                 print(f"\n[{i}/{publish_count}] {post['rewritten_title'][:60]}...")
 
                 try:
-                    published_url = self.publisher.publish_post(
-                        blog_id=blog_id,
+                    published_url = self.unified_publisher.publish_post(
+                        config=selected_config,
                         title=post['rewritten_title'],
                         content=post['rewritten_content'],
-                        labels=post.get('suggested_tags', [])
+                        labels=post.get('suggested_tags', []),
+                        images=post.get('images', [])
                     )
 
                     self.db.update_post_published(
@@ -229,7 +370,7 @@ class BlogMigrationCLI:
                         published_url=published_url
                     )
 
-                    print(f"  ✓ Published: {published_url}")
+                    print(f"  ✓ {published_url}")
 
                 except Exception as e:
                     print(f"  ✗ Error: {str(e)}")
@@ -289,7 +430,7 @@ class BlogMigrationCLI:
         while True:
             try:
                 self.display_menu()
-                choice = input("\nSelect option (1-8): ").strip()
+                choice = input("\nSelect option (1-9): ").strip()
 
                 if choice == '1':
                     self.show_dashboard()
@@ -302,14 +443,16 @@ class BlogMigrationCLI:
                 elif choice == '5':
                     self.rewrite_posts()
                 elif choice == '6':
-                    self.publish_posts()
+                    self.manage_blogger_configs()
                 elif choice == '7':
-                    self.view_posts_by_status()
+                    self.publish_posts()
                 elif choice == '8':
+                    self.view_posts_by_status()
+                elif choice == '9':
                     print("\n👋 Goodbye!")
                     break
                 else:
-                    print("\n❌ Invalid option. Please select 1-8.")
+                    print("\n❌ Invalid option. Please select 1-9.")
 
             except KeyboardInterrupt:
                 print("\n\n👋 Goodbye!")

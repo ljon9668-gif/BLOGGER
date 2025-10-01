@@ -2,6 +2,95 @@
 
 All notable changes to the Blog Migration Tool project.
 
+## [2.1.0] - 2025-10-01
+
+### 🎉 Email Publishing Support
+
+### ✨ Added
+- **Email Publishing Method**
+  - Publish to Blogger via email (alternative to API)
+  - Send posts directly to Blogger's email address
+  - Supports SMTP configuration (Gmail, Outlook, etc.)
+  - Automatic HTML formatting of content
+  - Image attachments support (up to 5 images)
+  - Tags/labels included in email footer
+
+- **Blogger Configuration Management**
+  - New database table `blogger_configs` for storing configurations
+  - Support for multiple blog configurations
+  - Store both API and Email configurations
+  - Mark default configuration for quick access
+  - Manage configurations via Web UI and CLI
+
+- **New Files**
+  - `email_publisher.py` - Email publishing functionality
+  - `unified_publisher.py` - Unified interface for API and Email publishing
+  - `EMAIL_PUBLISHING_GUIDE.md` - Complete guide for email publishing
+
+- **Database Changes**
+  - New table: `blogger_configs`
+    - Stores blog configurations (API or Email)
+    - Fields: blog_name, blog_id, api_key, email_address, smtp settings
+    - Support for multiple configurations
+    - Default configuration marking
+  - Migration: `add_blogger_configs_table`
+
+### 🔄 Changed
+- **app.py (Streamlit Interface)**
+  - New page: "Blogger Configuration"
+  - Configure API or Email publishing in the UI
+  - Save multiple configurations
+  - Select configuration before publishing
+  - No more manual Blog ID entry during publishing
+  - Updated "Rewrite & Publish" page to use saved configs
+  - Updated "Schedule Posts" page to use saved configs
+
+- **blog_migration_cli.py (CLI)**
+  - New menu option: "Manage Blogger Configurations"
+  - Add, list, and delete configurations
+  - Select configuration when publishing
+  - Improved publishing workflow
+
+- **database.py**
+  - Added methods for blogger_configs management:
+    - `add_blogger_config()`
+    - `get_all_blogger_configs()`
+    - `get_default_blogger_config()`
+    - `get_blogger_config()`
+    - `update_blogger_config()`
+    - `delete_blogger_config()`
+
+- **.env**
+  - Fixed variable names (removed VITE_ prefix)
+  - Now uses correct Supabase credentials
+
+### 📚 Documentation
+- `EMAIL_PUBLISHING_GUIDE.md` - Complete guide covering:
+  - How email publishing works
+  - Step-by-step configuration
+  - Gmail setup with App Passwords
+  - Comparison: API vs Email methods
+  - Troubleshooting guide
+  - Security best practices
+  - Multiple configuration examples
+
+### 🎯 Benefits of Email Publishing
+- ✅ No Blogger API setup required
+- ✅ Works with any SMTP provider
+- ✅ Simple configuration
+- ✅ Supports image attachments
+- ✅ Ideal for users without API access
+
+### 🔧 Technical Details
+- Email format: Subject = Title, Body = Content (HTML)
+- SMTP support: Gmail, Outlook, Yahoo, Zoho, custom
+- Automatic HTML conversion with formatting preservation
+- Image download and attachment (up to 5 per post)
+- Email validation for Blogger format (name.key@blogger.com)
+- Secure password storage in database
+
+---
+
 ## [2.0.0] - 2025-10-01
 
 ### 🎉 Major Release - Multi-Platform Support

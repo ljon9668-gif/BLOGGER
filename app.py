@@ -9,6 +9,8 @@ from ai_rewriter import AIRewriter
 from blogger_publisher import BloggerPublisher
 from scheduler import PostScheduler
 from utils import validate_url, extract_domain
+from unified_publisher import UnifiedPublisher
+from email_publisher import EmailPublisher
 
 # Initialize session state
 if 'db' not in st.session_state:
@@ -28,6 +30,9 @@ if 'publisher' not in st.session_state:
     blogger_api_key = os.getenv("BLOGGER_API_KEY")
     st.session_state.publisher = BloggerPublisher(blogger_api_key)
 
+if 'unified_publisher' not in st.session_state:
+    st.session_state.unified_publisher = UnifiedPublisher()
+
 if 'scheduler' not in st.session_state:
     st.session_state.scheduler = PostScheduler(st.session_state.db)
 
@@ -45,7 +50,7 @@ st.markdown("Migrate and rewrite blog content with AI-powered optimization")
 # Sidebar navigation
 page = st.sidebar.selectbox(
     "Navigation",
-    ["Dashboard", "Add Source Blogs", "Extract Content", "Rewrite & Publish", "Schedule Posts", "Migration History"]
+    ["Dashboard", "Add Source Blogs", "Extract Content", "Blogger Configuration", "Rewrite & Publish", "Schedule Posts", "Migration History"]
 )
 
 # Dashboard Page
@@ -133,6 +138,132 @@ elif page == "Add Source Blogs":
     else:
         st.info("No sources added yet.")
 
+# Blogger Configuration Page
+elif page == "Blogger Configuration":
+    st.header("⚙️ Blogger Configuration")
+
+    st.markdown("Configure how you want to publish to Blogger: via API or Email")
+
+    tab1, tab2 = st.tabs(["Add New Configuration", "Manage Configurations"])
+
+    with tab1:
+        st.subheader("Add Blogger Configuration")
+
+        blog_name = st.text_input("Blog Name", placeholder="My Awesome Blog")
+
+        publish_method = st.radio(
+            "Publishing Method",
+            ["api", "email"],
+            format_func=lambda x: "API (Blogger API Key)" if x == "api" else "Email (Send via SMTP)",
+            help="API: Fast and direct. Email: Works without API setup."
+        )
+
+        if publish_method == "api":
+            st.markdown("### API Configuration")
+            st.info("Get your Blogger Blog ID from your dashboard URL: blogger.com/blog/posts/YOUR_BLOG_ID")
+
+            blog_id = st.text_input("Blogger Blog ID", placeholder="1234567890123456789")
+            api_key = st.text_input(
+                "Blogger API Key",
+                type="password",
+                placeholder="AIzaSy...",
+                help="Get from Google Cloud Console"
+            )
+
+            is_default = st.checkbox("Set as default configuration")
+
+            if st.button("💾 Save API Configuration", type="primary"):
+                if blog_name and blog_id and api_key:
+                    if st.session_state.db.add_blogger_config(
+                        blog_name=blog_name,
+                        publish_method="api",
+                        blog_id=blog_id,
+                        api_key=api_key,
+                        is_default=is_default
+                    ):
+                        st.success(f"✅ Configuration '{blog_name}' saved!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to save configuration")
+                else:
+                    st.warning("⚠️ Please fill all required fields")
+
+        else:
+            st.markdown("### Email Configuration")
+            st.info(EmailPublisher.get_blogger_email_help())
+
+            email_address = st.text_input(
+                "Blogger Email Address",
+                placeholder="yourblog.secretkey@blogger.com",
+                help="Format: blogname.secretkey@blogger.com"
+            )
+
+            st.markdown("#### SMTP Settings")
+            col1, col2 = st.columns(2)
+            with col1:
+                smtp_server = st.text_input("SMTP Server", value="smtp.gmail.com")
+                smtp_username = st.text_input("SMTP Username (Email)", placeholder="your.email@gmail.com")
+            with col2:
+                smtp_port = st.number_input("SMTP Port", value=587, min_value=1, max_value=65535)
+                smtp_password = st.text_input("SMTP Password", type="password", help="For Gmail, use App Password")
+
+            is_default = st.checkbox("Set as default configuration")
+
+            if st.button("💾 Save Email Configuration", type="primary"):
+                if blog_name and email_address and smtp_username and smtp_password:
+                    if not EmailPublisher.validate_blogger_email(email_address):
+                        st.error("❌ Invalid Blogger email format. Must be: name.key@blogger.com")
+                    elif st.session_state.db.add_blogger_config(
+                        blog_name=blog_name,
+                        publish_method="email",
+                        email_address=email_address,
+                        smtp_server=smtp_server,
+                        smtp_port=smtp_port,
+                        smtp_username=smtp_username,
+                        smtp_password=smtp_password,
+                        is_default=is_default
+                    ):
+                        st.success(f"✅ Configuration '{blog_name}' saved!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to save configuration")
+                else:
+                    st.warning("⚠️ Please fill all required fields")
+
+    with tab2:
+        st.subheader("Existing Configurations")
+
+        configs = st.session_state.db.get_all_blogger_configs()
+
+        if configs:
+            for config in configs:
+                with st.expander(f"{'⭐ ' if config['is_default'] else ''}{config['blog_name']} ({config['publish_method'].upper()})"):
+                    col1, col2 = st.columns([3, 1])
+
+                    with col1:
+                        st.write(f"**Method:** {config['publish_method'].upper()}")
+                        if config['publish_method'] == 'api':
+                            st.write(f"**Blog ID:** {config['blog_id']}")
+                            st.write(f"**API Key:** {'*' * 20}")
+                        else:
+                            st.write(f"**Email:** {config['email_address']}")
+                            st.write(f"**SMTP:** {config['smtp_server']}:{config['smtp_port']}")
+                        st.write(f"**Default:** {'Yes' if config['is_default'] else 'No'}")
+
+                    with col2:
+                        if not config['is_default']:
+                            if st.button("⭐ Set Default", key=f"default_{config['id']}"):
+                                st.session_state.db.update_blogger_config(config['id'], is_default=True)
+                                st.success("Default updated!")
+                                st.rerun()
+
+                        if st.button("🗑️ Delete", key=f"del_config_{config['id']}"):
+                            st.session_state.db.delete_blogger_config(config['id'])
+                            st.success("Configuration deleted!")
+                            st.rerun()
+        else:
+            st.info("No configurations yet. Add one above.")
+
 # Extract Content Page
 elif page == "Extract Content":
     st.header("📥 Extract Content")
@@ -203,17 +334,31 @@ elif page == "Extract Content":
 # Rewrite & Publish Page
 elif page == "Rewrite & Publish":
     st.header("✍️ Rewrite & Publish")
-    
-    # Get destination blog ID
-    st.subheader("Blogger Configuration")
-    destination_blog_id = st.text_input(
-        "Destination Blogger Blog ID",
-        help="Find this in your Blogger dashboard URL: blogger.com/blog/posts/YOUR_BLOG_ID"
-    )
-    
-    if not destination_blog_id:
-        st.warning("⚠️ Please enter your destination Blogger Blog ID to continue.")
+
+    st.subheader("Select Blogger Configuration")
+    configs = st.session_state.db.get_all_blogger_configs()
+
+    if not configs:
+        st.warning("⚠️ No Blogger configurations found. Please add one in 'Blogger Configuration' page.")
+        st.info("Go to 'Blogger Configuration' to set up API or Email publishing.")
     else:
+        default_config = st.session_state.db.get_default_blogger_config()
+        default_index = 0
+        if default_config:
+            default_index = next((i for i, c in enumerate(configs) if c['id'] == default_config['id']), 0)
+
+        config_names = {c['id']: f"{c['blog_name']} ({c['publish_method'].upper()})" for c in configs}
+        selected_config_id = st.selectbox(
+            "Publishing Configuration",
+            options=list(config_names.keys()),
+            format_func=lambda x: config_names[x],
+            index=default_index,
+            help="Select the configuration to use for publishing"
+        )
+
+        selected_config = next(c for c in configs if c['id'] == selected_config_id)
+
+        st.info(f"📌 Publishing via: **{selected_config['publish_method'].upper()}** | Blog: **{selected_config['blog_name']}**")
         # Get posts ready for rewriting
         posts_to_rewrite = st.session_state.db.get_posts_by_status('extracted')
         
@@ -274,13 +419,14 @@ elif page == "Rewrite & Publish":
                         # Publish if requested
                         if publish_immediately:
                             try:
-                                published_url = st.session_state.publisher.publish_post(
-                                    blog_id=destination_blog_id,
+                                published_url = st.session_state.unified_publisher.publish_post(
+                                    config=selected_config,
                                     title=rewritten['title'],
                                     content=rewritten['content'],
-                                    labels=rewritten.get('tags', [])
+                                    labels=rewritten.get('tags', []),
+                                    images=post.get('images', [])
                                 )
-                                
+
                                 st.session_state.db.update_post_published(
                                     post_id=post['id'],
                                     published_url=published_url
@@ -311,16 +457,27 @@ elif page == "Rewrite & Publish":
 # Schedule Posts Page
 elif page == "Schedule Posts":
     st.header("📅 Schedule Posts")
-    
-    # Get destination blog ID
-    destination_blog_id = st.text_input(
-        "Destination Blogger Blog ID",
-        help="Find this in your Blogger dashboard URL"
-    )
-    
-    if not destination_blog_id:
-        st.warning("⚠️ Please enter your destination Blogger Blog ID to continue.")
+
+    st.subheader("Select Blogger Configuration")
+    configs = st.session_state.db.get_all_blogger_configs()
+
+    if not configs:
+        st.warning("⚠️ No Blogger configurations found. Please add one in 'Blogger Configuration' page.")
     else:
+        default_config = st.session_state.db.get_default_blogger_config()
+        default_index = 0
+        if default_config:
+            default_index = next((i for i, c in enumerate(configs) if c['id'] == default_config['id']), 0)
+
+        config_names = {c['id']: f"{c['blog_name']} ({c['publish_method'].upper()})" for c in configs}
+        selected_config_id = st.selectbox(
+            "Publishing Configuration",
+            options=list(config_names.keys()),
+            format_func=lambda x: config_names[x],
+            index=default_index
+        )
+
+        selected_config = next(c for c in configs if c['id'] == selected_config_id)
         # Get rewritten posts that haven't been published
         ready_posts = st.session_state.db.get_posts_by_status('rewritten')
         
@@ -384,21 +541,22 @@ elif page == "Schedule Posts":
                 with col2:
                     if st.button("Publish", key=f"pub_{post['id']}"):
                         try:
-                            published_url = st.session_state.publisher.publish_post(
-                                blog_id=destination_blog_id,
+                            published_url = st.session_state.unified_publisher.publish_post(
+                                config=selected_config,
                                 title=post['rewritten_title'] or post['title'],
                                 content=post['rewritten_content'] or post['content'],
-                                labels=post['suggested_tags'] or []
+                                labels=post['suggested_tags'] or [],
+                                images=post.get('images', [])
                             )
-                            
+
                             st.session_state.db.update_post_published(
                                 post_id=post['id'],
                                 published_url=published_url
                             )
-                            
+
                             st.success(f"✅ Published: {published_url}")
                             st.rerun()
-                            
+
                         except Exception as e:
                             st.error(f"❌ Failed to publish: {str(e)}")
 

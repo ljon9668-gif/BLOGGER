@@ -253,3 +253,84 @@ class Database:
             self.client.table('sources').delete().neq('id', '00000000-0000-0000-0000-000000000000').execute()
         except Exception as e:
             print(f"Error clearing data: {str(e)}")
+
+    def add_blogger_config(self, blog_name: str, publish_method: str,
+                          blog_id: Optional[str] = None, api_key: Optional[str] = None,
+                          email_address: Optional[str] = None,
+                          smtp_server: str = 'smtp.gmail.com', smtp_port: int = 587,
+                          smtp_username: Optional[str] = None,
+                          smtp_password: Optional[str] = None,
+                          is_default: bool = False) -> bool:
+        """Add Blogger configuration"""
+        try:
+            if is_default:
+                self.client.table('blogger_configs').update({
+                    'is_default': False
+                }).eq('is_default', True).execute()
+
+            self.client.table('blogger_configs').insert({
+                'blog_name': blog_name,
+                'publish_method': publish_method,
+                'blog_id': blog_id,
+                'api_key': api_key,
+                'email_address': email_address,
+                'smtp_server': smtp_server,
+                'smtp_port': smtp_port,
+                'smtp_username': smtp_username,
+                'smtp_password': smtp_password,
+                'is_default': is_default
+            }).execute()
+            return True
+        except Exception as e:
+            print(f"Error adding blogger config: {str(e)}")
+            return False
+
+    def get_all_blogger_configs(self) -> List[Dict[str, Any]]:
+        """Get all Blogger configurations"""
+        try:
+            response = self.client.table('blogger_configs').select('*').order('created_at', desc=True).execute()
+            return response.data
+        except Exception as e:
+            print(f"Error getting blogger configs: {str(e)}")
+            return []
+
+    def get_default_blogger_config(self) -> Optional[Dict[str, Any]]:
+        """Get default Blogger configuration"""
+        try:
+            response = self.client.table('blogger_configs').select('*').eq('is_default', True).maybeSingle().execute()
+            return response.data
+        except Exception as e:
+            print(f"Error getting default blogger config: {str(e)}")
+            return None
+
+    def get_blogger_config(self, config_id: str) -> Optional[Dict[str, Any]]:
+        """Get specific Blogger configuration"""
+        try:
+            response = self.client.table('blogger_configs').select('*').eq('id', config_id).maybeSingle().execute()
+            return response.data
+        except Exception as e:
+            print(f"Error getting blogger config: {str(e)}")
+            return None
+
+    def update_blogger_config(self, config_id: str, **kwargs) -> bool:
+        """Update Blogger configuration"""
+        try:
+            if kwargs.get('is_default'):
+                self.client.table('blogger_configs').update({
+                    'is_default': False
+                }).eq('is_default', True).execute()
+
+            self.client.table('blogger_configs').update(kwargs).eq('id', config_id).execute()
+            return True
+        except Exception as e:
+            print(f"Error updating blogger config: {str(e)}")
+            return False
+
+    def delete_blogger_config(self, config_id: str) -> bool:
+        """Delete Blogger configuration"""
+        try:
+            self.client.table('blogger_configs').delete().eq('id', config_id).execute()
+            return True
+        except Exception as e:
+            print(f"Error deleting blogger config: {str(e)}")
+            return False
