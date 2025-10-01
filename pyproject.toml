@@ -1,7 +1,7 @@
 [project]
-name = "repl-nix-workspace"
-version = "0.1.0"
-description = "Add your description here"
+name = "blog-migration-tool"
+version = "1.0.0"
+description = "Automated blog content migration and AI rewriting tool"
 requires-python = ">=3.11"
 dependencies = [
     "beautifulsoup4>=4.14.2",
@@ -13,4 +13,6 @@ dependencies = [
     "sift-stack-py>=0.9.1",
     "streamlit>=1.50.0",
     "trafilatura>=2.0.0",
+    "supabase>=2.12.0",
+    "python-dotenv>=1.0.0",
 ]

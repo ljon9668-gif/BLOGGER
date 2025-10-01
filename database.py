@@ -1,316 +1,255 @@
-import sqlite3
-import json
+import os
 from datetime import datetime
 from typing import List, Dict, Optional, Any
-import os
+from supabase import create_client, Client
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class Database:
-    def __init__(self, db_path: str = "blog_migration.db"):
-        """Initialize database connection and create tables if needed"""
-        self.db_path = db_path
-        self.init_db()
-    
-    def get_connection(self):
-        """Get database connection"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
-    
-    def init_db(self):
-        """Initialize database tables"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        # Sources table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS sources (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                url TEXT UNIQUE NOT NULL,
-                name TEXT NOT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-        
-        # Posts table
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS posts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                source_id INTEGER,
-                title TEXT NOT NULL,
-                content TEXT NOT NULL,
-                source_url TEXT,
-                rewritten_title TEXT,
-                rewritten_content TEXT,
-                meta_description TEXT,
-                images TEXT,
-                tags TEXT,
-                suggested_tags TEXT,
-                status TEXT DEFAULT 'extracted',
-                scheduled_time TIMESTAMP,
-                published_url TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (source_id) REFERENCES sources (id) ON DELETE CASCADE
-            )
-        ''')
-        
-        # Create indexes
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_posts_status ON posts(status)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_posts_source_id ON posts(source_id)')
-        cursor.execute('CREATE INDEX IF NOT EXISTS idx_posts_scheduled_time ON posts(scheduled_time)')
-        
-        conn.commit()
-        conn.close()
-    
+    def __init__(self):
+        """Initialize Supabase connection"""
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_ANON_KEY")
+
+        if not supabase_url or not supabase_key:
+            raise ValueError("SUPABASE_URL and SUPABASE_ANON_KEY must be set in environment variables")
+
+        self.client: Client = create_client(supabase_url, supabase_key)
+
     def add_source(self, url: str, name: str) -> bool:
         """Add a new source blog"""
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                'INSERT INTO sources (url, name) VALUES (?, ?)',
-                (url, name)
-            )
-            conn.commit()
-            conn.close()
+            self.client.table('sources').insert({
+                'url': url,
+                'name': name
+            }).execute()
             return True
-        except sqlite3.IntegrityError:
+        except Exception as e:
+            print(f"Error adding source: {str(e)}")
             return False
-    
+
     def get_all_sources(self) -> List[Dict[str, Any]]:
         """Get all source blogs"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM sources ORDER BY created_at DESC')
-        sources = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return sources
-    
-    def delete_source(self, source_id: int):
+        try:
+            response = self.client.table('sources').select('*').order('created_at', desc=True).execute()
+            return response.data
+        except Exception as e:
+            print(f"Error getting sources: {str(e)}")
+            return []
+
+    def delete_source(self, source_id: str):
         """Delete a source and all its posts"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM sources WHERE id = ?', (source_id,))
-        conn.commit()
-        conn.close()
-    
-    def add_post(self, source_id: int, title: str, content: str, source_url: str,
-                 images: Optional[List[str]] = None, tags: Optional[List[str]] = None) -> int:
+        try:
+            self.client.table('sources').delete().eq('id', source_id).execute()
+        except Exception as e:
+            print(f"Error deleting source: {str(e)}")
+
+    def add_post(self, source_id: str, title: str, content: str, source_url: str,
+                 images: Optional[List[str]] = None, tags: Optional[List[str]] = None) -> str:
         """Add a new post"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        images_json = json.dumps(images) if images else '[]'
-        tags_json = json.dumps(tags) if tags else '[]'
-        
-        cursor.execute('''
-            INSERT INTO posts (source_id, title, content, source_url, images, tags)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (source_id, title, content, source_url, images_json, tags_json))
-        
-        post_id = cursor.lastrowid
-        if post_id is None:
-            conn.close()
+        try:
+            response = self.client.table('posts').insert({
+                'source_id': source_id,
+                'title': title,
+                'content': content,
+                'source_url': source_url,
+                'images': images or [],
+                'tags': tags or [],
+                'status': 'extracted'
+            }).execute()
+
+            if response.data and len(response.data) > 0:
+                return response.data[0]['id']
             raise Exception("Failed to insert post - no ID returned")
-        
-        conn.commit()
-        conn.close()
-        return post_id
-    
+
+        except Exception as e:
+            print(f"Error adding post: {str(e)}")
+            raise
+
     def is_duplicate(self, title: str, source_url: str) -> bool:
         """Check if post already exists"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            'SELECT COUNT(*) as count FROM posts WHERE title = ? OR source_url = ?',
-            (title, source_url)
-        )
-        result = cursor.fetchone()
-        conn.close()
-        return result['count'] > 0
-    
-    def get_posts_by_source(self, source_id: int, status: Optional[str] = None) -> List[Dict[str, Any]]:
+        try:
+            response = self.client.table('posts')\
+                .select('id')\
+                .or_(f'title.eq.{title},source_url.eq.{source_url}')\
+                .limit(1)\
+                .execute()
+
+            return len(response.data) > 0
+        except Exception as e:
+            print(f"Error checking duplicate: {str(e)}")
+            return False
+
+    def get_posts_by_source(self, source_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get posts from a specific source"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        if status:
-            cursor.execute(
-                'SELECT * FROM posts WHERE source_id = ? AND status = ? ORDER BY created_at DESC',
-                (source_id, status)
-            )
-        else:
-            cursor.execute(
-                'SELECT * FROM posts WHERE source_id = ? ORDER BY created_at DESC',
-                (source_id,)
-            )
-        
-        posts = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        
-        # Parse JSON fields
-        for post in posts:
-            post['images'] = json.loads(post['images']) if post['images'] else []
-            post['tags'] = json.loads(post['tags']) if post['tags'] else []
-            post['suggested_tags'] = json.loads(post['suggested_tags']) if post['suggested_tags'] else []
-        
-        return posts
-    
+        try:
+            query = self.client.table('posts').select('*').eq('source_id', source_id)
+
+            if status:
+                query = query.eq('status', status)
+
+            response = query.order('created_at', desc=True).execute()
+            return response.data
+        except Exception as e:
+            print(f"Error getting posts by source: {str(e)}")
+            return []
+
     def get_posts_by_status(self, status: str, limit: int = 100) -> List[Dict[str, Any]]:
         """Get posts by status"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute(
-            'SELECT * FROM posts WHERE status = ? ORDER BY created_at DESC LIMIT ?',
-            (status, limit)
-        )
-        posts = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        
-        # Parse JSON fields
-        for post in posts:
-            post['images'] = json.loads(post['images']) if post['images'] else []
-            post['tags'] = json.loads(post['tags']) if post['tags'] else []
-            post['suggested_tags'] = json.loads(post['suggested_tags']) if post['suggested_tags'] else []
-        
-        return posts
-    
+        try:
+            response = self.client.table('posts')\
+                .select('*')\
+                .eq('status', status)\
+                .order('created_at', desc=True)\
+                .limit(limit)\
+                .execute()
+
+            return response.data
+        except Exception as e:
+            print(f"Error getting posts by status: {str(e)}")
+            return []
+
     def get_all_posts(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Get all posts"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM posts ORDER BY created_at DESC LIMIT ?', (limit,))
-        posts = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        
-        # Parse JSON fields
-        for post in posts:
-            post['images'] = json.loads(post['images']) if post['images'] else []
-            post['tags'] = json.loads(post['tags']) if post['tags'] else []
-            post['suggested_tags'] = json.loads(post['suggested_tags']) if post['suggested_tags'] else []
-        
-        return posts
-    
-    def update_post_rewritten(self, post_id: int, rewritten_title: str,
+        try:
+            response = self.client.table('posts')\
+                .select('*')\
+                .order('created_at', desc=True)\
+                .limit(limit)\
+                .execute()
+
+            return response.data
+        except Exception as e:
+            print(f"Error getting all posts: {str(e)}")
+            return []
+
+    def update_post_rewritten(self, post_id: str, rewritten_title: str,
                              rewritten_content: str, meta_description: Optional[str] = None,
                              suggested_tags: Optional[List[str]] = None):
         """Update post with rewritten content"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        suggested_tags_json = json.dumps(suggested_tags) if suggested_tags else '[]'
-        
-        cursor.execute('''
-            UPDATE posts 
-            SET rewritten_title = ?, 
-                rewritten_content = ?, 
-                meta_description = ?,
-                suggested_tags = ?,
-                status = 'rewritten',
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (rewritten_title, rewritten_content, meta_description, suggested_tags_json, post_id))
-        
-        conn.commit()
-        conn.close()
-    
-    def update_post_scheduled(self, post_id: int, scheduled_time: datetime):
+        try:
+            self.client.table('posts').update({
+                'rewritten_title': rewritten_title,
+                'rewritten_content': rewritten_content,
+                'meta_description': meta_description,
+                'suggested_tags': suggested_tags or [],
+                'status': 'rewritten',
+                'updated_at': datetime.now().isoformat()
+            }).eq('id', post_id).execute()
+        except Exception as e:
+            print(f"Error updating rewritten post: {str(e)}")
+            raise
+
+    def update_post_scheduled(self, post_id: str, scheduled_time: datetime):
         """Update post with scheduled time"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE posts 
-            SET scheduled_time = ?, 
-                status = 'scheduled',
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (scheduled_time.isoformat(), post_id))
-        conn.commit()
-        conn.close()
-    
-    def update_post_published(self, post_id: int, published_url: str):
+        try:
+            self.client.table('posts').update({
+                'scheduled_time': scheduled_time.isoformat(),
+                'status': 'scheduled',
+                'updated_at': datetime.now().isoformat()
+            }).eq('id', post_id).execute()
+        except Exception as e:
+            print(f"Error updating scheduled post: {str(e)}")
+
+    def update_post_published(self, post_id: str, published_url: str):
         """Update post as published"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE posts 
-            SET published_url = ?, 
-                status = 'published',
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (published_url, post_id))
-        conn.commit()
-        conn.close()
-    
-    def update_post_failed(self, post_id: int, error_message: str):
+        try:
+            self.client.table('posts').update({
+                'published_url': published_url,
+                'status': 'published',
+                'updated_at': datetime.now().isoformat()
+            }).eq('id', post_id).execute()
+        except Exception as e:
+            print(f"Error updating published post: {str(e)}")
+            raise
+
+    def update_post_failed(self, post_id: str, error_message: str):
         """Mark post as failed"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            UPDATE posts 
-            SET status = 'failed',
-                meta_description = ?,
-                updated_at = CURRENT_TIMESTAMP
-            WHERE id = ?
-        ''', (error_message, post_id))
-        conn.commit()
-        conn.close()
-    
+        try:
+            self.client.table('posts').update({
+                'status': 'failed',
+                'meta_description': error_message,
+                'updated_at': datetime.now().isoformat()
+            }).eq('id', post_id).execute()
+        except Exception as e:
+            print(f"Error marking post as failed: {str(e)}")
+
     def get_statistics(self) -> Dict[str, int]:
         """Get migration statistics"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT COUNT(*) as count FROM sources')
-        total_sources = cursor.fetchone()['count']
-        
-        cursor.execute("SELECT COUNT(*) as count FROM posts WHERE status = 'extracted'")
-        total_extracted = cursor.fetchone()['count']
-        
-        cursor.execute("SELECT COUNT(*) as count FROM posts WHERE status = 'published'")
-        total_published = cursor.fetchone()['count']
-        
-        cursor.execute("SELECT COUNT(*) as count FROM posts WHERE status IN ('extracted', 'rewritten', 'scheduled')")
-        total_pending = cursor.fetchone()['count']
-        
-        conn.close()
-        
-        return {
-            'total_sources': total_sources,
-            'total_extracted': total_extracted,
-            'total_published': total_published,
-            'total_pending': total_pending
-        }
-    
+        try:
+            sources_count = len(self.client.table('sources').select('id', count='exact').execute().data)
+
+            extracted_count = len(
+                self.client.table('posts').select('id', count='exact')
+                .eq('status', 'extracted').execute().data
+            )
+
+            published_count = len(
+                self.client.table('posts').select('id', count='exact')
+                .eq('status', 'published').execute().data
+            )
+
+            pending_count = len(
+                self.client.table('posts').select('id', count='exact')
+                .in_('status', ['extracted', 'rewritten', 'scheduled']).execute().data
+            )
+
+            return {
+                'total_sources': sources_count,
+                'total_extracted': extracted_count,
+                'total_published': published_count,
+                'total_pending': pending_count
+            }
+        except Exception as e:
+            print(f"Error getting statistics: {str(e)}")
+            return {
+                'total_sources': 0,
+                'total_extracted': 0,
+                'total_published': 0,
+                'total_pending': 0
+            }
+
     def get_recent_posts(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get recent posts"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT p.*, s.name as source_name 
-            FROM posts p 
-            LEFT JOIN sources s ON p.source_id = s.id 
-            ORDER BY p.updated_at DESC 
-            LIMIT ?
-        ''', (limit,))
-        posts = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return posts
-    
-    def get_source_post_count(self, source_id: int) -> int:
+        """Get recent posts with source information"""
+        try:
+            response = self.client.table('posts')\
+                .select('*, sources(name)')\
+                .order('updated_at', desc=True)\
+                .limit(limit)\
+                .execute()
+
+            posts = []
+            for post in response.data:
+                post_data = dict(post)
+                if 'sources' in post_data and post_data['sources']:
+                    post_data['source_name'] = post_data['sources']['name']
+                else:
+                    post_data['source_name'] = 'Unknown'
+                posts.append(post_data)
+
+            return posts
+        except Exception as e:
+            print(f"Error getting recent posts: {str(e)}")
+            return []
+
+    def get_source_post_count(self, source_id: str) -> int:
         """Get post count for a source"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) as count FROM posts WHERE source_id = ?', (source_id,))
-        count = cursor.fetchone()['count']
-        conn.close()
-        return count
-    
+        try:
+            response = self.client.table('posts')\
+                .select('id', count='exact')\
+                .eq('source_id', source_id)\
+                .execute()
+
+            return len(response.data)
+        except Exception as e:
+            print(f"Error getting source post count: {str(e)}")
+            return 0
+
     def clear_all_data(self):
         """Clear all migration data"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM posts')
-        cursor.execute('DELETE FROM sources')
-        conn.commit()
-        conn.close()
+        try:
+            self.client.table('posts').delete().neq('id', '00000000-0000-0000-0000-000000000000').execute()
+            self.client.table('sources').delete().neq('id', '00000000-0000-0000-0000-000000000000').execute()
+        except Exception as e:
+            print(f"Error clearing data: {str(e)}")
